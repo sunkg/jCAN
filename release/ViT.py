@@ -16,6 +16,7 @@ class WindowAttention(nn.Module):
         dim (int): Number of input channels.
         window_size (tuple[int]): The height and width of the window.
         num_heads (int): Number of attention heads.
+        channel_scale (int): Number of branches in ViT.
         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
         attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
@@ -203,7 +204,6 @@ class SwinTransformerElement(nn.Module):
             x = shifted_x
         x = x.view(B, H * W, C)
 
-        # FFN
         x = shortcut + self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
@@ -212,14 +212,15 @@ class SwinTransformerElement(nn.Module):
 
 
 class FusionTransformer(nn.Module):
-    r""" Fusion Transformer.
+    r""" Fusion Block (FB).
 
     Args:
-        dim (int): Number of input channels.
+        embed_dim (int): Number of input channels.
         input_resolution (tuple[int]): Input resulotion.
         num_heads (int): Number of attention heads.
         window_size (int): Window size.
         shift_size (int): Shift size for SW-MSA.
+        channel_scale (int): Number of branches in ViT
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if  set.
@@ -313,7 +314,6 @@ class FusionTransformer(nn.Module):
             x = shifted_x
         x = x.view(B, H * W, C//self.channel_scale)
 
-        # FFN
         x = self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
@@ -324,11 +324,11 @@ class BasicLayer(nn.Module):
     """ A basic Swin Transformer Block for one stage.
 
     Args:
-        dim (int): Number of input channels.
+        embed_dim (int): Number of input channels.
         input_resolution (tuple[int]): Input resolution.
-        depth (int): Number of blocks.
         num_heads (int): Number of attention heads.
         window_size (int): Local window size.
+        depth (int): Number of blocks.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
@@ -373,14 +373,14 @@ class BasicLayer(nn.Module):
 								
 
 class SelfCrossBlocks(nn.Module):
-    """ A self-cross attention Swin Transformer layer.
+    """ Self- and Cross-attention.
 
     Args:
         embed_dim (int): Number of input channels.
         input_resolution (tuple[int]): Input resolution.
-        depth (int): Number of blocks.
         num_heads (int): Number of attention heads.
         window_size (int): Local window size.
+        depth (int): Number of blocks.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
@@ -401,12 +401,12 @@ class SelfCrossBlocks(nn.Module):
         self.depth = depth
         self.n_SC = n_SC
 
-        #### sharing weight ####
+        #### without sharing weight ####
         self.blockSC = nn.ModuleList([
             BasicLayer(embed_dim=embed_dim, input_resolution=input_resolution, num_heads=num_heads, 
                        window_size=window_size, depth=depth, mlp_ratio=mlp_ratio, qkv_bias=True, qk_scale=None, 
                        drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm)
-                       for _ in range(self.n_SC*2)]) # multiply by 2*2 because of T1 and T2 two branches and self- and cross-attention 
+                       for _ in range(self.n_SC*2*2)]) # multiply by 2*2 because of T1 and T2 two branches and self- and cross-attention 
 
 
     def forward(self, x, y):
@@ -417,13 +417,13 @@ class SelfCrossBlocks(nn.Module):
                 y_ = self.blockSC[blk_index](y, y)
             else: 
                 x = self.blockSC[blk_index](x_, y_)
-                y = self.blockSC[blk_index](y_, y_)                       
+                y = self.blockSC[blk_index](y_, x_)                       
             return x, y
 
 
 
 class ViT(nn.Module):
-    """Self Cross Transformer Block (SCTB).
+    """ViT block including SA, CA, and FB.
 
     Args:
         dim (int): Number of input channels.
@@ -458,11 +458,11 @@ class ViT(nn.Module):
             norm_layer=self.norm_layer if self.patch_norm else None)
 
         
-        #### add gradient map ####
+        #### patch into superpixel ####
         self.patch_embed_r = utils.PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=dim+1 if ds_ref else dim, embed_dim=embed_dim,
-            norm_layer=norm_layer if patch_norm else None)
-
+            norm_layer=norm_layer if patch_norm else None) #involve gradient map by +1
+        #### unpatch into pixel ####
         self.patch_unembed = utils.PatchUnEmbed(
             img_size=img_size, patch_size=patch_size, out_chans=self.dim, embed_dim=embed_dim,
             norm_layer=self.norm_layer if self.patch_norm else None)

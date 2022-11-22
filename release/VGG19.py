@@ -17,7 +17,7 @@ class Vgg19(nn.Module):
                 
         # load pretrained VGG #
         self.vgg_model = models.vgg19(pretrained=False)    
-        pthfile = r'/public/bme/home/sunkc/fMRI/pretrained/vgg19-dcbb9e9d.pth'
+        pthfile = r'/path to vgg19-dcbb9e9d.pth'
         self.vgg_model.load_state_dict(torch.load(pthfile))
         
         self.vgg_pretrained_features = self.vgg_model.features

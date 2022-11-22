@@ -45,6 +45,7 @@ class Mask(torch.nn.Module):
         mask.masked_scatter_(self.pruned, torch.zeros_like(self.weight))
         return image * (self.weight*mask)[None, None, None, :]
 
+
 class RandomMask(Mask):
     """When  the  acceleration factorequals four,
     the fully-sampled central region includes 8% of all k-space lines;
@@ -94,7 +95,6 @@ class EquispacedMask(Mask):
         self.pruned[center_len//2:center_len//2-center_len] = pruned_part
         
 
-
 class LowpassMask(Mask):
     """Low freq only
     """
@@ -109,6 +109,7 @@ class LowpassMask(Mask):
         # low freq is of the border
         self.pruned[center_len//2:center_len//2-center_len] = True
 
+
 def rescale_prob(x, sparsity):
     """
     Rescale Probability x so that it obtains the desired sparsity
@@ -122,6 +123,7 @@ def rescale_prob(x, sparsity):
         return x * sparsity / xbar
     else:
         return 1 - (1 - x) * (1 - sparsity) / (1 - xbar)
+
 
 class LOUPEMask(torch.nn.Module):
     def __init__(self, sparsity, shape, pmask_slope=5, sample_slope=12):

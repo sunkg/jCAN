@@ -104,19 +104,12 @@ def main(args):
     iter_cnt = 0
 
     print('training from scratch...')
+    
     net = ReconModel(cfg=cfg)
+    net = net.to(device)
     epoch_start = 0
 
-  ######## Use parallel training if possible #####
-    if torch.cuda.device_count() > 1:
-        cnt_GPU = torch.cuda.device_count()
-        cfg.GPUs = cnt_GPU
-        print("Let's use", cnt_GPU, "GPUs!")
-        print(net.cfg)
-        batchsize_train = cnt_GPU*args.batch_size
-        net = nn.DataParallel(net)
-
-    net = net.to(device)
+    print(net.cfg)
 
     writer.add_text('date', repr(time.ctime()))
     writer.add_text('working dir', repr(os.getcwd()))
@@ -171,9 +164,7 @@ def main(args):
 
     optim_R = torch.optim.AdamW(net.parameters(), \
             lr=cfg.lr, weight_decay=0)
-    
-    #scheduler = torch.optim.lr_scheduler.StepLR(optim_R,step_size=1,gamma=0.1)
-    
+        
     scalar = torch.cuda.amp.GradScaler(enabled=cfg.use_amp)
     
     record_train = np.zeros([len(loader_train)*args.epoch//scalar_span, num_loss]) # record train loss
@@ -188,9 +179,9 @@ def main(args):
                 '[{elapsed}<{remaining},{rate_fmt}]'+'{postfix}', leave=False)
         
         #### learning rate decay ####
-        if index_epoch%50==0:
+        if index_epoch%100==0:
             for param_group in optim_R.param_groups:
-                param_group['lr'] = param_group['lr']*(0.5**(index_epoch//50))
+                param_group['lr'] = param_group['lr']*(0.5**(index_epoch//100))
                 
         if signal_earlystop:
             break
@@ -221,26 +212,18 @@ def main(args):
             time_start = time.time()
             if iter_cnt % scalar_span == 0:
                 last_loss = iter_cnt
-                if cfg.GPUs>1: vis = net.module.get_vis('scalars') 
-                else: vis = net.get_vis('scalars')
+                vis = net.get_vis('scalars')
                 for name, val in vis['scalars'].items():
                     writer.add_scalar('train/'+name, val, iter_cnt)
-                if cfg.GPUs>1: vis = net.module.get_vis('histograms')
-                else:vis = net.get_vis('histograms')
+                vis = net.get_vis('histograms')
                 for name, val in vis['histograms'].items():
                     writer.add_histogram( \
                             tag='train/'+name, \
                             global_step=iter_cnt, **val)
                 del vis, name, val
                 
-                if cfg.GPUs>1:
-                    record_train[record_train_index, :args.num_recurrent] = [(sum(i)/len(local_fidelities[0])).cpu() for i in local_fidelities]
-                    record_train[record_train_index, args.num_recurrent:] = loss_fidelity.mean().cpu(), \
-                                                loss_consistency.mean().cpu(), loss_VGG.mean(), loss_all.mean().cpu()
-
-                else:
-                    record_train[record_train_index, :args.num_recurrent] = local_fidelities
-                    record_train[record_train_index, args.num_recurrent:] = loss_fidelity, loss_consistency, loss_VGG, loss_all
+                record_train[record_train_index, :args.num_recurrent] = local_fidelities
+                record_train[record_train_index, args.num_recurrent:] = loss_fidelity, loss_consistency, loss_VGG, loss_all
 
                 np.save(args.logdir+'/train_loss_recorded', record_train)
                 record_train_index += 1
@@ -249,12 +232,8 @@ def main(args):
                 last_disp = iter_cnt
                 net.eval()
                 with torch.no_grad():
-                    if cfg.GPUs>1:
-                        net.module.test(*batch_vis)
-                        vis = net.module.get_vis('images')
-                    else: 
-                        net.test(*batch_vis)
-                        vis = net.get_vis('images')   
+                    net.test(*batch_vis)
+                    vis = net.get_vis('images')   
                 for name, val in vis['images'].items():
                     torchvision.utils.save_image(val, \
                         args.logdir+'/res/'+'%010d_'%iter_cnt+name+'.jpg', \
@@ -263,16 +242,10 @@ def main(args):
                 del vis, name, val
             if (iter_cnt % 30000 == 0):
                 last_ckpt = iter_cnt
-                if cfg.GPUs>1: 
-                    torch.save({'state_dict': net.module.state_dict(),
-                                'config': cfg,
-                                'epoch': index_epoch},
-                               args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
-                else: 
-                    torch.save({'state_dict': net.state_dict(),
-                                'config': cfg,
-                                'epoch': index_epoch},
-                               args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
+                torch.save({'state_dict': net.state_dict(),
+                            'config': cfg,
+                            'epoch': index_epoch},
+                           args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
 
 
             time_vis = time.time() - time_start
@@ -298,14 +271,9 @@ def main(args):
             for batch in tqdm_iter:
                 time_data = time.time() - time_start
                 batch = [x.to(device, non_blocking=True) for x in batch]
-                if cfg.GPUs>1: 
-                    net.module.test(*batch)
-                    stat_loss.append(net.module.Eval)
-                    vis = net.module.get_vis('scalars')
-                else:
-                    net.test(*batch)
-                    stat_loss.append(net.Eval)
-                    vis = net.get_vis('scalars')
+                net.test(*batch)
+                stat_loss.append(net.Eval)
+                vis = net.get_vis('scalars')
                 stat_eval.append(vis['scalars'])
                 del batch
 
@@ -321,83 +289,37 @@ def main(args):
             Eval_SSIM.append(Eval_SSIM_current)
             del vis
             
-            if cfg.GPUs>1: 
-                record_val[index_epoch, :args.num_recurrent] = net.module.local_fidelities
-                record_val[index_epoch, args.num_recurrent:] = net.module.loss_fidelity, \
-                net.module.loss_consistency, net.module.loss_VGG, net.module.loss_all
-            else:
-                record_val[index_epoch, :args.num_recurrent] = net.local_fidelities
-                record_val[index_epoch, args.num_recurrent:] = net.loss_fidelity, \
-                net.loss_consistency, net.loss_VGG, net.loss_all    
- 
+            #### save metrics ####
+            record_val[index_epoch, :args.num_recurrent] = net.local_fidelities
+            record_val[index_epoch, args.num_recurrent:] = net.loss_fidelity, net.loss_consistency, net.loss_VGG, net.loss_all    
             np.save(args.logdir+'/val_loss_recorded', record_val)
             np.save(args.logdir+'/PSNR', np.array(Eval_PSNR))
             np.save(args.logdir+'/SSIM', np.array(Eval_SSIM))
-
-            
-            if index_epoch%5==0:
-                if cfg.GPUs>1:               
-                    B, C, H, W = net.module.sens_maps.shape
-                    for i in range(len(net.module.SMs)):
-                        np.save(args.logdir+'/res/'+'%010d_'%iter_cnt+'_sensitivitymap'+str(i), \
-                                utils.rss(net.module.SMs[i].view(-1, 1, H , W)).cpu().detach().numpy())
                             
-                    torchvision.utils.save_image(utils.rss(net.module.sens_maps.view(-1, 1, H , W)), \
-                                                 args.logdir+'/res/'+'%010d_'%iter_cnt+'_sensitivitymap.jpg', \
-                                                 nrow=6, padding=10, range=(0, 1), pad_value=0.5)     
-                    np.save(args.logdir+'/res/'+'%010d_'%iter_cnt+'_mask', net.module.mask.cpu().numpy()) # save mask 
-                else: 
-                    B, C, H, W = net.sens_maps.shape
-                    for i in range(len(net.SMs)):
-                        np.save(args.logdir+'/res/'+'%010d_'%iter_cnt+'_sensitivitymap'+str(i), \
-                                utils.rss(net.SMs[i].view(-1, 1, H , W)).cpu().detach().numpy())
-                            
-                    torchvision.utils.save_image(utils.rss(net.sens_maps.view(-1, 1, H , W)), \
-                                                 args.logdir+'/res/'+'%010d_'%iter_cnt+'_sensitivitymap.jpg', \
-                                                 nrow=6, padding=10, range=(0, 1), pad_value=0.5)     
-                    np.save(args.logdir+'/res/'+'%010d_'%iter_cnt+'_mask', net.mask.cpu().numpy()) # save mask 
-                    
-            
-
-            # early_stop is enabled
             if (Eval_PSNR_best is None) or ((Eval_PSNR_current > Eval_PSNR_best) & (Eval_SSIM_current > Eval_SSIM_best)):
                 Eval_PSNR_best = Eval_PSNR_current
                 Eval_SSIM_best = Eval_SSIM_current
                 iter_best = iter_cnt
                 print('Current best iteration %d/%d:'%(iter_best, len(loader_train)*args.epoch), f' PSNR: {Eval_PSNR_best:.2f}', f', SSIM: {Eval_SSIM_best:.4f}')
-                if cfg.GPUs>1: 
-                    torch.save({'state_dict': net.module.state_dict(),
-                                'config': cfg,
-                                'epoch': index_epoch},
-                                 args.logdir+'/ckpt/best.pt')
-                else: 
-                    torch.save({'state_dict': net.state_dict(),
-                                'config': cfg,
-                                'epoch': index_epoch},
-                                 args.logdir+'/ckpt/best.pt')
+                torch.save({'state_dict': net.state_dict(),
+                            'config': cfg,
+                            'epoch': index_epoch},
+                             args.logdir+'/ckpt/best.pt')
 
             else:
                 if iter_cnt >= args.early_stop + iter_best:
                     signal_earlystop=True
                     print('signal_earlystop set due to early_stop')
-
-            #print('Current iteration %d/%d'%(iter_cnt, len(loader_train)*args.epoch), f' PSNR: {Eval_PSNR_current:.2f}', f', SSIM: {Eval_SSIM_current:.4f}', ', best iteration %d:'%(iter_best), f' PSNR: {Eval_PSNR_best:.2f}', f', SSIM: {Eval_SSIM_best:.4f}')
                 
                       
     print('reached end of training loop, and signal_earlystop is '+str(signal_earlystop))
     writer.flush()
-    writer.close()
-    
-    if cfg.GPUs>1: 
-        torch.save({'state_dict': net.module.state_dict(),
-                    'config': cfg,
-                    'epoch': index_epoch},
-                     args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
-    else: 
-        torch.save({'state_dict': net.state_dict(),
-                    'config': cfg,
-                    'epoch': index_epoch},
-                    args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
+    writer.close() 
+
+    torch.save({'state_dict': net.state_dict(),
+                'config': cfg,
+                'epoch': index_epoch},
+                args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
     print('saved final ckpt:', args.logdir+'/ckpt/ckpt_%010d.pt'%iter_cnt)
 
 
@@ -417,7 +339,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='jCAN')
     parser.add_argument('--logdir', metavar='logdir', \
-                        type=str, default='/xxx',\
+                        type=str, default='/PATH_TO_SAVE',\
                         help='Save directory')
     parser.add_argument('--epoch', type=int, default=300, \
                         help='Epochs to train')
@@ -425,9 +347,9 @@ if __name__ == '__main__':
                         help='Mini-batch size for training')
     parser.add_argument('--num_workers', type=int, default=os.cpu_count(), \
                         help='Number of threads for parallel preprocessing')
-    parser.add_argument('--lr', type=float, default=2e-4, \
-                        help='Learning rate')
-    parser.add_argument('--early_stop', type=try_int, default=1000000, metavar='N', \
+    parser.add_argument('--lr', type=float, default=5e-4, \
+                        help='Initial learning rate')
+    parser.add_argument('--early_stop', type=try_int, default=50000, metavar='N', \
                         help='Stop training after val loss not going down for N iters')
     parser.add_argument('--n_SC', type=int, default=1, \
                         help='Number of cascades for SA and CA attention')
@@ -435,7 +357,7 @@ if __name__ == '__main__':
                         help='Weight of the VGG Loss')
     parser.add_argument('--vgg_indices', type=tuple, default=tuple([16]), \
                         help='Indices of the VGG layer as loss')
-    parser.add_argument('--patch_size', type=tuple, default=tuple([1,1,1,1,1]), \
+    parser.add_argument('--patch_size', type=tuple, default=tuple([2,1,2,1,2,1,2,1,2,1,2,1,2,1,1]), \
                         help='Patch size in ViT')   
     parser.add_argument('--beta', type=float, default=10, \
                         help='Weight of the consistency loss in K-space')
@@ -463,8 +385,8 @@ if __name__ == '__main__':
                         help='if there is GT, default is True') 
     parser.add_argument('--exchange_Modal', type=bool, default=False, \
                         help='Augment data by exchanging the order of protocals, default is False') 
-    parser.add_argument('--ds_ref', type=bool, default=False, \
-                        help='Use gradient reference image as additional input, default is False') 
+    parser.add_argument('--ds_ref', type=bool, default=True, \
+                        help='Use gradient map of reference image as additional input, default is True') 
     parser.add_argument('--SR_scale', type=int, default=1, \
                         help='resoluton enhancement factor')
     parser.add_argument('--is_Kspace', type=bool, default=False, \
@@ -476,11 +398,11 @@ if __name__ == '__main__':
                         type=str, default = 'equispaced', help='types of mask')
     parser.add_argument('--sparsity', metavar='0-1', \
                         type=float, default=0.25, help='desired overall sparisity of masks without sparsity, 0.25 for 4X, 0.125 for 8X.')
-    parser.add_argument('--train', type=str, default='/xxx.csv', \
+    parser.add_argument('--train', type=str, default='/PATH_TO_TRAIN.csv', \
                         help='path to csv file of training data')
-    parser.add_argument('--val', default='/xxx.csv', \
+    parser.add_argument('--val', default='/PATH_TO_VALIDATION.csv', \
                         type=str, help='path to csv file of validation data')
-    parser.add_argument('--basepath', default='/xxx', \
+    parser.add_argument('--basepath', default='/PATH_TO_Data', \
                             type=str, help='Directory of data files')
     parser.add_argument('--coils', type=int, default=24, \
                         help='Number of coils')

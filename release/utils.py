@@ -9,7 +9,6 @@ import torch
 import numpy as np
 import torch.fft
 import torch.nn.functional as F
-from unet import UNet
 import nibabel as nib
 import h5py
 

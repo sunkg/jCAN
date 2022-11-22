@@ -1,7 +1,5 @@
-import time
 import numpy as np
 import torch
-from model import gradient_loss
 import torchvision.transforms.functional as F
 
 def rigid_grid(img):

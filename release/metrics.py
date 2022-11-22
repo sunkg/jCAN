@@ -48,7 +48,6 @@ def psnr(gt, pred, gt_flag=True):
         psnr = compare_psnr(gt, pred, data_range=1).item()
     else:
         psnr = -1000
-    # data is already rescale to 0~1 by subject
     return psnr
 
 def ssim(gt, pred, gt_flag=True):

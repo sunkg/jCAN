@@ -27,20 +27,15 @@ class SensitivityModel(nn.Module):
         self,
         chans: int,
         sens_steps: int,
-        mask_center: bool = True,
         is_Unet: bool = True,
     ):
         """
         Args:
             chans: Number of output channels of the first convolution layer.
-            num_pools: Number of down-sampling and up-sampling layers.
-            in_chans: Number of channels in the complex input.
-            out_chans: Number of channels in the complex output.
-            mask_center: Whether to mask center of k-space for sensitivity map
-                calculation.
+            sens_steps: Number of down-sampling and up-sampling layers.
+            is_Unet: Use Unet for SM estimation.
         """
         super().__init__()
-        self.mask_center = mask_center
 
         self.norm_net = NormNet(
             chans,
@@ -48,19 +43,6 @@ class SensitivityModel(nn.Module):
             is_Unet = is_Unet
             )
 
-    '''
-    def up(self, x):
-        xR, xI = x.real, x.imag
-        xR = F.interpolate(xR, scale_factor=2, mode='bilinear')
-        xI = F.interpolate(xI, scale_factor=2, mode='bilinear')
-        return torch.complex(xR, xI)
-
-    def down(self, x):
-        xR, xI = x.real, x.imag
-        xR = F.avg_pool2d(xR, 2)
-        xI = F.avg_pool2d(xI, 2)
-        return torch.complex(xR, xI)
-    '''
 
     def forward(
         self,
@@ -112,9 +94,8 @@ class NormNet(nn.Module):
         """
         Args:
             chans: Number of output channels of the first convolution layer.
-            num_pools: Number of down-sampling and up-sampling layers.
-            in_chans: Number of channels in the complex input.
-            out_chans: Number of channels in the complex output.
+            num_steps: Number of down-sampling and up-sampling layers.
+            is_Unet: Use Unet for SM estimation.
         """
         super().__init__()
         
@@ -310,7 +291,7 @@ class Unet(nn.Module):
         self.scale = nn.Parameter(torch.rand(1))
         self.gate_conv = nn.Conv2d(ch, 1, kernel_size=1, stride=1)
         #### learnable Gaussian std ####
-        self.stds = nn.ParameterList([nn.Parameter(torch.ones(1)) for _ in range(num_pool_layers)])
+        self.stds = nn.ParameterList([nn.Parameter(torch.ones(1)) for _ in range(num_pool_layers)]) # due to use of Parameterlist, parallel training may have problem
 
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         """
@@ -365,6 +346,6 @@ class Unet(nn.Module):
         norm_conv = self.norm_conv(output)
 
         #### gated ####
-        gate_conv = torch.sigmoid(1*self.gate_conv(output))
+        gate_conv = torch.sigmoid(self.gate_conv(output))
         return norm_conv, gate_conv
     

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-
-import os, sys, json
+import os
 import numpy as np
 import h5py
 import torch
 import imageio
-import torch.nn.functional as F
 
 def center_crop(data, shape):
     if shape[0] <= data.shape[-2]:

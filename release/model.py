@@ -6,7 +6,7 @@ import torch
 import torch.fft
 import torch.nn.functional as F
 from masks import Mask, LowpassMask, EquispacedMask, LOUPEMask, TaylorMask, RandomMask
-from basemodel import BaseModel, Config
+from basemodel import BaseModel
 import metrics
 import torch.nn as nn
 import fD2RT
@@ -14,15 +14,6 @@ import VGG19
 from utils import rss, fft2, ifft2
 import utils
 
-
-def gradient_loss(s):
-    assert s.shape[-1] == 2, 'not 2D grid?'
-    dx = torch.abs(s[:, :, 1:, :] - s[:, :, :-1, :])
-    dy = torch.abs(s[:, 1:, :, :] - s[:, :-1, :, :])
-    dy = dy*dy
-    dx = dx*dx
-    d = torch.mean(dx)+torch.mean(dy)
-    return d/2.0
 
 def generate_rhos(num_recurrent):
     rhos = [0.9**i for i in range(num_recurrent-1,-1,-1)]
@@ -131,7 +122,7 @@ class ReconModel(BaseModel):
             else:
                 self.set_input_noGT(Target_Kspace_f, Ref_Kspace_f)
                 
-            self.recs_complex, self.img_rec_rss, self.sens_maps, self.rec_down, self.SMs = self.net_R(\
+            self.recs_complex, self.img_rec_rss, self.sens_maps, self.rec_down = self.net_R(\
                     Ref_Kspace_f = self.Ref_Kspace_f,
                     Target_Kspace_u = self.img_Target_Kspace_sampled,
                     mask = self.mask,
@@ -149,9 +140,11 @@ class ReconModel(BaseModel):
     
             self.loss_all += self.loss_fidelity
     
+            #### DC loss ###
             self.loss_consistency = self.cfg.beta*F.l1_loss(self.mask*utils.sens_expand(self.rec_down,self.sens_maps), self.img_Target_Kspace_sampled)
             self.loss_all += self.loss_consistency
             
+            #### VGG loss ###
             vgg_img1 = torch.cat([self.img_rec_rss]*3,1)
             vgg_img2 = torch.cat([self.img_Target_f_rss]*3,1)
             self.loss_VGG = self.cfg.vgg_lambdas*self.VGGLoss(vgg_img1,vgg_img2)

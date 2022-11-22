@@ -18,7 +18,7 @@ class ResNet(nn.Module):
         Args:
             chans_in: Number of channels in the input.  
 	       chans_max: Number of maximum channels 
-            out_chans: Number of channels in the output.
+            num_conv: Number of convs in the body.
             channel_scale: combine two modalities in channel.
         """
         super().__init__()
@@ -83,7 +83,7 @@ class Unet(nn.Module):
         in_chans: int,
         out_chans: int,
         chans: int = 32, 
-        num_pool_layers: int = 4,
+        num_pool_layers: int = 3,
     ):
         """
         Args:
@@ -200,8 +200,7 @@ class ConvBlock(nn.Module):
 
 class GatedConvBlock(nn.Module):
     """
-    A Convolutional Block that consists of two convolution layers each followed by
-    instance normalization, LeakyReLU activation and dropout.
+    Gated Convolutional Block.
     """
 
     def __init__(self, in_chans: int, out_chans: int):
@@ -243,8 +242,7 @@ class GatedConvBlock(nn.Module):
     
 class ConvBlockSM(nn.Module):
     """
-    A Convolutional Block that consists of two convolution layers each followed by
-    instance normalization, LeakyReLU activation and dropout.
+    Stack of convs followed by spatial attention.
     """
 
     def __init__(self, in_chans=2, conv_num=0, out_chans = None, max_chans = None):
@@ -329,8 +327,7 @@ class TransposeConvBlock(nn.Module):
 
 class ConvBlockDown(nn.Module):
     """
-    A Convolutional Block that consists of two convolution layers each followed by
-    LeakyReLU activation.
+    A Convolutional Block that decreases the dimension.
     """
 
     def __init__(self, in_chans, SR_scale):
@@ -364,8 +361,7 @@ class ConvBlockDown(nn.Module):
     
 class ConvBlockUp(nn.Module):
     """
-    A Convolutional Block that consists of two convolution layers each followed by
-    LeakyReLU activation.
+    A Convolutional Block that upscales the dimension.
     """
 
     def __init__(self, in_chans, SR_scale):

@@ -1,29 +1,13 @@
 #!/usr/bin/env python3
-
 import os, os.path, statistics, json
 import torch
 import numpy as np
 import nibabel as nib
-from paired_dataset import get_paired_volume_datasets, center_crop
+from paired_dataset import get_paired_volume_datasets
 from model import ReconModel
-from augment import augment
 import torchvision.utils
 import utils
-from ptflops import get_model_complexity_info
 
-def augment_aux(batch, factor=1):
-    assert factor > 0
-    img_full, img_aux = batch
-    _, grid =  augment(img_aux, rigid=True, bspline=True)
-    identity = np.array([[[1, 0, 0], [0, 1, 0]]])
-    identity = identity * np.ones((img_aux.shape[0], 1, 1))
-    identity = torch.as_tensor(identity, dtype=img_aux.abs().dtype).to(img_aux.device, non_blocking=True)
-    identity = torch.nn.functional.affine_grid(identity, \
-            size=img_aux.shape, align_corners=False)
-    offset = grid - identity
-    grid = identity + offset * factor
-    img_aux, _ =  augment(img_aux, rigid=False, bspline=False, grid=grid)
-    return (img_full, img_aux)
 
 def main(args):
     affine = np.eye(4)*[0.7,-0.7,-5,1]
@@ -48,12 +32,8 @@ def main(args):
     cfg = net.cfg
     net.GT = args.GT
  
-    if args.aux_aug > 0:
-        volumes = get_paired_volume_datasets( \
-                args.val, crop=int(cfg.shape*1.05), protocals=args.protocals, basepath = args.basepath)
-    else:
-        volumes = get_paired_volume_datasets( \
-                args.val, crop=cfg.shape, protocals=args.protocals, basepath = args.basepath)
+    volumes = get_paired_volume_datasets( \
+            args.val, crop=cfg.shape, protocals=args.protocals, basepath = args.basepath)
             
     net.eval()
 
@@ -67,10 +47,6 @@ def main(args):
         with torch.no_grad():
             batch = [torch.tensor(np.stack(s, axis=0)).to(device) for s in \
                     zip(*[volume[j] for j in range(len(volume))])]
-            if args.aux_aug > 0:
-                img_full, img_aux = batch
-                batch =  augment_aux(batch, args.aux_aug)
-                batch = [center_crop(i, (cfg.shape, cfg.shape)) for i in batch]
             
             net.test(*batch)
             vis = net.get_vis('scalars')
@@ -121,11 +97,6 @@ def main(args):
     print(vis_mean)
     print(vis_std)
 
-    with torch.cuda.device(0):
-        macs, params = get_model_complexity_info(net, (48, 320, 320), as_strings=True,
-                                           print_per_layer_stat=True, verbose=True)
-        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
 if __name__ == '__main__':
     import argparse
@@ -137,17 +108,15 @@ if __name__ == '__main__':
                         help='path to save evaluated data')
     parser.add_argument('--save_img', default= True, \
                 type=bool, help='save images or not')
-    parser.add_argument('--val', default='/xxx.csv', \
+    parser.add_argument('--val', default='/public/bme/home/sunkc/fMRI/data/T1Flair_T2Flair_T2_test.csv', \
             type=str, help='path to csv of test data')
-    parser.add_argument('--basepath', default='/xxx', \
+    parser.add_argument('--basepath', default='/public_bme/share/DataBackup/UII_brain_T1F_T2F_T2/original_data', \
             type=str, help='path to test files')
     parser.add_argument('--shape', type=tuple, default=320, \
             help='Image shape, images will be cropped to match')
     parser.add_argument('--protocals', metavar='NAME', \
             type=str, default= ['T2','T1Flair'], nargs='*',
             help='input modalities')
-    parser.add_argument('--aux_aug', type=float, default=-1, \
-            help='Data augmentation aux image, set to -1 to ignore')
     parser.add_argument('--GT', type=bool, default=True, \
             help='GT exists, default is True') 
     args = parser.parse_args()
