@@ -8,4 +8,4 @@ Current deep learning-based reconstruction models for accelerated multi-coil mag
 python3 train.py  --force_gpu --protocals T2 T1Flair --logdir /PATH_to_SAVE  --shape 320  --sparsity 0.125 --mask equispaced --coils 24
 
 #### To test your model ####
-python3 eval.py  --protocals T2 T1Flair --model_path /PATH_to_Pretrained_Model/ckpt/best.pt  --save_path /PATH_to_SAVE
+python3 eval.py  --protocals T2 T1Flair --model_path /PATH_to_Pretrained_Model  --save_path /PATH_to_SAVE
