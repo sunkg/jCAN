@@ -382,15 +382,15 @@ if __name__ == '__main__':
     parser.add_argument('--sens_steps', type=int, default=4, \
                         help='Number of steps in initial sensitivity network')
     parser.add_argument('--GT', action='store_true', \
-                        help='if there is GT, default is True') 
+                        help='if there is GT') 
     parser.add_argument('--exchange_Modal', action='store_true', \
                         help='Augment data by exchanging the order of protocals, default is False') 
     parser.add_argument('--ds_ref', action='store_true', \
-                        help='Use gradient map of reference image as additional input, default is True') 
+                        help='Use gradient map of reference image as additional input') 
     parser.add_argument('--SR_scale', type=int, default=1, \
                         help='resoluton enhancement factor')
     parser.add_argument('--is_Kspace', action='store_true', \
-                        help='Raw data is in Kspace, default is False') 
+                        help='Raw data is in Kspace') 
     parser.add_argument('--is_Unet', action='store_true', \
                         help='Use Unet for estimation of senstivity map, alternative is ResNet') 
     parser.add_argument('--mask', metavar='type', \
