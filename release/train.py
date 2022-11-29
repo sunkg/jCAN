@@ -91,9 +91,6 @@ def main(args):
     writer = torch.utils.tensorboard.SummaryWriter(args.logdir)
 
     print('loading model...')
-    #seed = 19950102+666+233
-    #torch.manual_seed(seed)
-    #np.random.seed(seed)
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     cfg.device = device.type
@@ -142,9 +139,7 @@ def main(args):
             slices_val, batch_size=len_vis, shuffle=True)))
     batch_vis = [x.to(device, non_blocking=True) for x in batch_vis]
     batch_vis = [utils.complex_to_chan_dim(x) for x in batch_vis]    
-
-    torch.manual_seed(int(time.time()))
-    np.random.seed(int(time.time()))
+    
     print('done, ' \
             + str(len(slices_train)) + ' / ' \
             + str(len(volumes_train)) + ' for training, ' \
